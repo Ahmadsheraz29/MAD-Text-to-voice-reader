@@ -1,7 +1,8 @@
 // lib/main.dart
-// Voice Reader App - 5 Screens (Sign Up, Login, Home, Paste Text, Upload Document)
+// Voice Reader App - 6 Screens (Sign Up, Login, Home, Paste Text, Upload Document, Audio Player)
 // Only Flutter SDK is used, no extra packages required.
 
+import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -704,7 +705,11 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           InkWell(
                             borderRadius: BorderRadius.circular(20),
-                            onTap: () => _soon('Playback'),
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                  builder: (_) =>
+                                      AudioPlayerScreen(title: r.title)),
+                            ),
                             child: Container(
                               padding: const EdgeInsets.all(7),
                               decoration: BoxDecoration(
@@ -735,12 +740,19 @@ class _HomeScreenState extends State<HomeScreen> {
                   color: kNavy,
                   child: Row(
                     children: [
-                      const Expanded(
-                        child: Text('Chapter 1: The Beginning',
-                            style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white)),
+                      Expanded(
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                                builder: (_) => const AudioPlayerScreen()),
+                          ),
+                          child: const Text('Chapter 1: The Beginning',
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white)),
+                        ),
                       ),
                       InkWell(
                         onTap: () => setState(() => _playing = !_playing),
@@ -1132,8 +1144,11 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
       return;
     }
     // Extract file text here and send it to Text-to-Speech.
-    ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${sel.first.name} is ready')));
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => AudioPlayerScreen(title: sel.first.name),
+      ),
+    );
   }
 
   @override
@@ -1305,6 +1320,210 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
                       fontWeight: FontWeight.w700,
                       color: on ? Colors.white : kInk)),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// SCREEN 6: Full Audio Player
+// ---------------------------------------------------------------------------
+class AudioPlayerScreen extends StatefulWidget {
+  final String title;
+  const AudioPlayerScreen({super.key, this.title = 'Chapter 1: The Beginning'});
+
+  @override
+  State<AudioPlayerScreen> createState() => _AudioPlayerScreenState();
+}
+
+class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
+  // Progress is currently simulated. For real audio, connect position
+  // and duration from flutter_tts / just_audio here.
+  static const int totalSeconds = 418; // 06:58
+  int _position = 253; // 04:13
+  bool _playing = true;
+  bool _bookmarked = false;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _startTimer();
+  }
+
+  void _startTimer() {
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!_playing) return;
+      if (_position >= totalSeconds) {
+        setState(() => _playing = false);
+        return;
+      }
+      setState(() => _position++);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  String _fmt(int s) {
+    final m = (s ~/ 60).toString().padLeft(2, '0');
+    final r = (s % 60).toString().padLeft(2, '0');
+    return '$m:$r';
+  }
+
+  void _togglePlay() {
+    setState(() {
+      if (_position >= totalSeconds) _position = 0;
+      _playing = !_playing;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final remaining = totalSeconds - _position;
+    return Scaffold(
+      body: GlassBackground(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(22, 8, 22, 28),
+          child: Column(
+            children: [
+              // Top bar
+              SizedBox(
+                height: 48,
+                child: Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.keyboard_arrow_down_rounded,
+                          size: 30, color: kInk),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                    const Expanded(
+                      child: Text('Now Playing',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 12, color: kMuted)),
+                    ),
+                    IconButton(
+                      icon: Icon(
+                        _bookmarked
+                            ? Icons.bookmark_rounded
+                            : Icons.bookmark_border_rounded,
+                        color: kInk,
+                      ),
+                      onPressed: () =>
+                          setState(() => _bookmarked = !_bookmarked),
+                    ),
+                  ],
+                ),
+              ),
+              const Spacer(),
+
+              // Cover art
+              AspectRatio(
+                aspectRatio: 1,
+                child: Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(22),
+                    gradient: const LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Color(0xFF2A1F8F), Color(0xFF4A3FE0)],
+                    ),
+                    border: Border.all(color: alpha(Colors.white, 0.6)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: alpha(kIndigo, 0.35),
+                        blurRadius: 36,
+                        offset: const Offset(0, 18),
+                      ),
+                    ],
+                  ),
+                  child: const Center(
+                    child: Icon(Icons.music_note_rounded,
+                        size: 54, color: Colors.white),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 26),
+
+              // Titles
+              Text(widget.title,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.w800, color: kInk)),
+              const SizedBox(height: 4),
+              const Text('Artificial Intelligence Overview',
+                  style: TextStyle(fontSize: 12, color: kIndigo)),
+              const SizedBox(height: 22),
+
+              // Seek bar
+              SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: 3,
+                  activeTrackColor: const Color(0xFF4A3FE0),
+                  inactiveTrackColor: alpha(kIndigo, 0.15),
+                  thumbColor: const Color(0xFF4A3FE0),
+                  thumbShape:
+                  const RoundSliderThumbShape(enabledThumbRadius: 6),
+                  overlayShape:
+                  const RoundSliderOverlayShape(overlayRadius: 14),
+                ),
+                child: Slider(
+                  value: _position.toDouble(),
+                  min: 0,
+                  max: totalSeconds.toDouble(),
+                  onChanged: (v) => setState(() => _position = v.round()),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(_fmt(_position),
+                        style: const TextStyle(
+                            fontSize: 10, color: Color(0xFF4A3FE0))),
+                    Text(_fmt(remaining),
+                        style:
+                        const TextStyle(fontSize: 10, color: kMuted)),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+
+              // Play / Pause
+              GestureDetector(
+                onTap: _togglePlay,
+                child: Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: const Color(0xFF4A3FE0),
+                    boxShadow: [
+                      BoxShadow(
+                        color: alpha(const Color(0xFF4A3FE0), 0.4),
+                        blurRadius: 20,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: Icon(
+                    _playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                    size: 34,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+              const Spacer(),
+            ],
           ),
         ),
       ),
