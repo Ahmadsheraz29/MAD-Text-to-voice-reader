@@ -1,13 +1,17 @@
 // lib/main.dart
-// Voice Reader App - 4 Screens (Sign Up, Login, Home, Paste Text)
+// Voice Reader App - 5 Screens (Sign Up, Login, Home, Paste Text, Upload Document)
+// Only Flutter SDK is used, no extra packages required.
 
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:file_picker/file_picker.dart';
 
 void main() => runApp(const VoiceReaderApp());
 
+// ---------------------------------------------------------------------------
 // Colors & helpers
+// ---------------------------------------------------------------------------
 const kIndigo = Color(0xFF1E1E8F);
 const kPurple = Color(0xFF8B87E8);
 const kNavy = Color(0xFF0A0A4A);
@@ -34,7 +38,9 @@ class VoiceReaderApp extends StatelessWidget {
   }
 }
 
+// ---------------------------------------------------------------------------
 // Reusable glass widgets
+// ---------------------------------------------------------------------------
 class GlassBackground extends StatelessWidget {
   final Widget child;
   const GlassBackground({super.key, required this.child});
@@ -254,18 +260,20 @@ String? requiredValidator(String? v, String msg) =>
     (v == null || v.trim().isEmpty) ? msg : null;
 
 String? emailValidator(String? v) {
-  if (v == null || v.trim().isEmpty) return 'Enter your email';
+  if (v == null || v.trim().isEmpty) return 'Email is required';
   final ok = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(v.trim());
-  return ok ? null : 'Enter correct email';
+  return ok ? null : 'Enter a valid email';
 }
 
 String? passwordValidator(String? v) {
-  if (v == null || v.isEmpty) return 'Enter your password';
-  if (v.length < 6) return 'Password must contains atleast 6 characters ';
+  if (v == null || v.isEmpty) return 'Password is required';
+  if (v.length < 6) return 'At least 6 characters';
   return null;
 }
 
+// ---------------------------------------------------------------------------
 // SCREEN 1: Sign Up
+// ---------------------------------------------------------------------------
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
 
@@ -291,7 +299,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
   void _signUp() {
     if (!_formKey.currentState!.validate()) return;
-    // Yahan apni backend / Firebase sign up logic add karein.
+    // Add your backend / Firebase sign up logic here.
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
         builder: (_) => HomeScreen(userName: _first.text.trim()),
@@ -323,7 +331,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     ),
                     const SizedBox(height: 4),
                     const Text(
-                      'Text Into Speech Reader',
+                      'Sign up to listen to text in voice',
                       textAlign: TextAlign.center,
                       style: TextStyle(fontSize: 12, color: kMuted),
                     ),
@@ -339,14 +347,14 @@ class _SignUpScreenState extends State<SignUpScreen> {
                       hint: 'Your first name',
                       controller: _first,
                       validator: (v) =>
-                          requiredValidator(v, 'Enter your first name'),
+                          requiredValidator(v, 'First name is required'),
                     ),
                     const SizedBox(height: 14),
                     GlassField(
                       hint: 'Last Name',
                       controller: _last,
                       validator: (v) =>
-                          requiredValidator(v, 'Enter your last name'),
+                          requiredValidator(v, 'Last name is required'),
                     ),
                     const SizedBox(height: 14),
                     GlassField(
@@ -390,7 +398,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
   }
 }
 
+// ---------------------------------------------------------------------------
 // SCREEN 2: Login
+// ---------------------------------------------------------------------------
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -412,7 +422,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   void _login() {
     if (!_formKey.currentState!.validate()) return;
-    // Yahan apni backend / Firebase login logic add karein.
+    // Add your backend / Firebase login logic here.
     final name = _email.text.trim().split('@').first;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => HomeScreen(userName: name)),
@@ -470,7 +480,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           onPressed: () =>
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
-                                    content: Text('Password is forgetting')),
+                                    content: Text('Password reset is coming soon')),
                               ),
                           child: const Text('Forget Password?',
                               style: TextStyle(fontSize: 12, color: kMuted)),
@@ -496,7 +506,9 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
+// ---------------------------------------------------------------------------
 // SCREEN 3: Home
+// ---------------------------------------------------------------------------
 class ReadingItem {
   final String title;
   final String info;
@@ -535,7 +547,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _soon(String what) {
     ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text('$what Coming Soon ')));
+        .showSnackBar(SnackBar(content: Text('$what is coming soon')));
   }
 
   @override
@@ -568,7 +580,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             const SizedBox(height: 2),
                             const Text(
                               'what would you like to listen today?',
-                              style: TextStyle(fontSize: 13, color: kMuted),
+                              style: TextStyle(fontSize: 12, color: kMuted),
                             ),
                           ],
                         ),
@@ -619,7 +631,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       const SizedBox(width: 14),
                       Expanded(
                         child: GlassCard(
-                          onTap: () => _soon('Upload File'),
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                                builder: (_) => const UploadDocumentScreen()),
+                          ),
                           child: const SizedBox(
                             height: 100,
                             child: Column(
@@ -787,19 +802,19 @@ class _HomeScreenState extends State<HomeScreen> {
       {VoidCallback? onTap}) {
     final selected = index == _tab;
     return InkWell(
-      borderRadius: BorderRadius.circular(13),
+      borderRadius: BorderRadius.circular(12),
       onTap: onTap ??
               () {
             setState(() => _tab = index);
             if (index != 0) _soon(label);
           },
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(icon, size: 24, color: selected ? kIndigo : kInk),
-            const SizedBox(height: 7),
+            const SizedBox(height: 2),
             Text(label,
                 style: TextStyle(
                     fontSize: 9,
@@ -812,7 +827,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+// ---------------------------------------------------------------------------
 // SCREEN 4: Paste Text (max 500 words)
+// ---------------------------------------------------------------------------
 class WordLimitFormatter extends TextInputFormatter {
   final int maxWords;
   WordLimitFormatter(this.maxWords);
@@ -822,6 +839,7 @@ class WordLimitFormatter extends TextInputFormatter {
       TextEditingValue oldValue, TextEditingValue newValue) {
     final matches = RegExp(r'\S+').allMatches(newValue.text).toList();
     if (matches.length <= maxWords) return newValue;
+    // If more than 500 words are pasted, keep only the first 500 words
     final end = matches[maxWords - 1].end;
     return TextEditingValue(
       text: newValue.text.substring(0, end),
@@ -869,7 +887,7 @@ class _PasteTextScreenState extends State<PasteTextScreen> {
     if (text.trim().isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Clipboard Is Empty')));
+          const SnackBar(content: Text('Clipboard is empty')));
       return;
     }
     final formatted = WordLimitFormatter(maxWords).formatEditUpdate(
@@ -880,16 +898,17 @@ class _PasteTextScreenState extends State<PasteTextScreen> {
     final total = RegExp(r'\S+').allMatches(text).length;
     if (total > maxWords && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Only first $maxWords words are copied')));
+          SnackBar(content: Text('Only the first $maxWords words were kept')));
     }
   }
 
   void _listen() {
     if (_words == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('First type or paste some text')));
+          const SnackBar(content: Text('Please paste or type text first')));
       return;
     }
+    // Add your Text-to-Speech logic (flutter_tts / API) here.
     ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Reading $_words words in $_voice')));
   }
@@ -957,7 +976,7 @@ class _PasteTextScreenState extends State<PasteTextScreen> {
                           textAlignVertical: TextAlignVertical.top,
                           inputFormatters: [WordLimitFormatter(maxWords)],
                           onChanged: (_) => setState(() {}),
-                          style: const TextStyle(fontSize: 15, color: kInk),
+                          style: const TextStyle(fontSize: 14, color: kInk),
                           decoration: const InputDecoration(
                             hintText:
                             'Paste or type your text here to convert into natural speech...',
@@ -1022,6 +1041,270 @@ class _PasteTextScreenState extends State<PasteTextScreen> {
               const SizedBox(height: 16),
               GlassButton(label: 'Listen', onPressed: _listen, filled: true),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// SCREEN 5: Upload Document
+// ---------------------------------------------------------------------------
+class UploadedFile {
+  final String name;
+  final int bytes;
+  bool selected;
+  UploadedFile(this.name, this.bytes, {this.selected = false});
+
+  String get ext => name.contains('.') ? name.split('.').last.toLowerCase() : '';
+}
+
+class UploadDocumentScreen extends StatefulWidget {
+  const UploadDocumentScreen({super.key});
+
+  @override
+  State<UploadDocumentScreen> createState() => _UploadDocumentScreenState();
+}
+
+class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
+  static const int maxBytes = 25 * 1024 * 1024; // 25MB
+  static const _types = ['PDF', 'DOCX', 'TXT'];
+
+  // Empty set means: all three types are allowed
+  final Set<String> _filter = {};
+
+  final List<UploadedFile> _recent = [
+    UploadedFile('Document_01.pdf', 1200000, selected: true),
+  ];
+
+  Future<void> _browse() async {
+    final allowed = (_filter.isEmpty ? _types : _filter.toList())
+        .map((e) => e.toLowerCase())
+        .toList();
+    try {
+      final files = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: allowed,
+      );
+      if (files.isEmpty) return;
+      final f = files.first;
+      final fileSize = f.lengthSync() ?? 0;
+      if (fileSize > maxBytes) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('File is larger than 25MB')));
+        return;
+      }
+      setState(() {
+        for (final r in _recent) {
+          r.selected = false;
+        }
+        _recent.insert(0, UploadedFile(f.name, fileSize, selected: true));
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not select file')));
+    }
+  }
+
+  IconData _iconFor(String ext) {
+    switch (ext) {
+      case 'pdf':
+        return Icons.picture_as_pdf_outlined;
+      case 'docx':
+        return Icons.article_outlined;
+      default:
+        return Icons.description_outlined;
+    }
+  }
+
+  String _size(int b) => b >= 1024 * 1024
+      ? '${(b / (1024 * 1024)).toStringAsFixed(1)} MB'
+      : '${(b / 1024).toStringAsFixed(0)} KB';
+
+  void _continue() {
+    final sel = _recent.where((e) => e.selected).toList();
+    if (sel.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please select a file first')));
+      return;
+    }
+    // Extract file text here and send it to Text-to-Speech.
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${sel.first.name} is ready')));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: GlassBackground(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+          children: [
+            // Top bar
+            SizedBox(
+              height: 48,
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back, color: kInk),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                  const Expanded(
+                    child: Text('Upload Document',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            color: kInk)),
+                  ),
+                  const SizedBox(width: 48),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Browse box
+            GlassCard(
+              radius: 20,
+              tint: const Color(0xFFE4E5FF),
+              onTap: _browse,
+              padding: EdgeInsets.zero,
+              child: Container(
+                height: 200,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: const Color(0xFF6C6CF0), width: 1.4),
+                ),
+                child: const Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.cloud_upload_outlined,
+                        size: 46, color: Color(0xFF5A4FCF)),
+                    SizedBox(height: 14),
+                    Text('Browse files to upload',
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            color: kInk)),
+                    SizedBox(height: 4),
+                    Text('Supports PDF, DOCX, TXT up to 25MB',
+                        style: TextStyle(fontSize: 10, color: kMuted)),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 28),
+
+            // Type chips
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                for (final t in _types)
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      child: _typeChip(t),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 28),
+
+            const Text('Recent Uploads',
+                style: TextStyle(
+                    fontSize: 13, fontWeight: FontWeight.w800, color: kInk)),
+            const SizedBox(height: 14),
+
+            if (_recent.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 20),
+                child: Text('No files uploaded yet',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 12, color: kMuted)),
+              ),
+            for (final f in _recent) ...[
+              GlassCard(
+                radius: 14,
+                padding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                child: Row(
+                  children: [
+                    Icon(_iconFor(f.ext), size: 30, color: kInk),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(f.name,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: kInk)),
+                          const SizedBox(height: 2),
+                          Text(_size(f.bytes),
+                              style: const TextStyle(
+                                  fontSize: 10, color: kMuted)),
+                        ],
+                      ),
+                    ),
+                    Checkbox(
+                      value: f.selected,
+                      activeColor: const Color(0xFF5A4FCF),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(4)),
+                      onChanged: (v) => setState(() {
+                        for (final r in _recent) {
+                          r.selected = false;
+                        }
+                        f.selected = v ?? false;
+                      }),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
+            const SizedBox(height: 20),
+            Center(
+              child: GlassButton(
+                  label: 'Continue', onPressed: _continue, filled: true),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _typeChip(String t) {
+    final on = _filter.contains(t);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+        child: Material(
+          color: on ? alpha(kIndigo, 0.9) : alpha(Colors.white, 0.55),
+          child: InkWell(
+            onTap: () => setState(() {
+              on ? _filter.remove(t) : _filter.add(t);
+            }),
+            child: Container(
+              height: 36,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: alpha(Colors.white, 0.8)),
+              ),
+              child: Text(t,
+                  style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: on ? Colors.white : kInk)),
+            ),
           ),
         ),
       ),
