@@ -1,6 +1,6 @@
 // lib/main.dart
-// Voice Reader App - 6 Screens (Sign Up, Login, Home, Paste Text, Upload Document, Audio Player)
-// Only Flutter SDK is used, no extra packages required.
+// Voice Reader App - 7 Screens (Sign Up, Login, Home, Paste Text, Upload Document, Audio Player, Voices)
+// Only Flutter SDK is used (plus file_picker for uploads).
 
 import 'dart:async';
 import 'dart:ui';
@@ -20,6 +20,12 @@ const kInk = Color(0xFF14143C);
 const kMuted = Color(0xFF6B6F8D);
 
 Color alpha(Color c, double o) => c.withAlpha((o * 255).round());
+
+// Shared state: voice selected on the Voices screen is used by Paste Text screen.
+final ValueNotifier<String> selectedVoice =
+ValueNotifier<String>('Nova (Natural, English)');
+final ValueNotifier<double> voiceSpeed = ValueNotifier<double>(1.0);
+final ValueNotifier<double> voicePitch = ValueNotifier<double>(1.0);
 
 class VoiceReaderApp extends StatelessWidget {
   const VoiceReaderApp({super.key});
@@ -817,6 +823,13 @@ class _HomeScreenState extends State<HomeScreen> {
       borderRadius: BorderRadius.circular(12),
       onTap: onTap ??
               () {
+            // Voices (index 1) opens SCREEN 7
+            if (index == 1) {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const VoicesScreen()),
+              );
+              return;
+            }
             setState(() => _tab = index);
             if (index != 0) _soon(label);
           },
@@ -870,7 +883,7 @@ class PasteTextScreen extends StatefulWidget {
 class _PasteTextScreenState extends State<PasteTextScreen> {
   static const int maxWords = 500;
   final _controller = TextEditingController();
-  String _voice = 'Nova (Natural, English)';
+  late String _voice = selectedVoice.value; // comes from Voices screen
 
   static const _voices = [
     'Nova (Natural, English)',
@@ -928,6 +941,8 @@ class _PasteTextScreenState extends State<PasteTextScreen> {
   @override
   Widget build(BuildContext context) {
     final atLimit = _words >= maxWords;
+    // If the voice chosen on Voices screen isn't in this list, add it.
+    final voiceItems = _voices.contains(_voice) ? _voices : [..._voices, _voice];
     return Scaffold(
       body: GlassBackground(
         child: Padding(
@@ -1040,10 +1055,13 @@ class _PasteTextScreenState extends State<PasteTextScreen> {
                           style: const TextStyle(fontSize: 12, color: kInk),
                           dropdownColor: const Color(0xFFF1F2FD),
                           items: [
-                            for (final v in _voices)
+                            for (final v in voiceItems)
                               DropdownMenuItem(value: v, child: Text(v)),
                           ],
-                          onChanged: (v) => setState(() => _voice = v!),
+                          onChanged: (v) {
+                            setState(() => _voice = v!);
+                            selectedVoice.value = v!;
+                          },
                         ),
                       ),
                     ),
@@ -1527,6 +1545,395 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// SCREEN 7: Voices (opened from the "Voices" icon in the footer)
+// ---------------------------------------------------------------------------
+class VoiceOption {
+  final String name; // short name, e.g. Nova
+  final String label; // full label used across the app
+  final String style; // Natural / Calm / Deep ...
+  final String gender; // Female / Male / Neutral
+  final String language;
+  final IconData icon;
+  const VoiceOption({
+    required this.name,
+    required this.label,
+    required this.style,
+    required this.gender,
+    required this.language,
+    required this.icon,
+  });
+}
+
+class VoicesScreen extends StatefulWidget {
+  const VoicesScreen({super.key});
+
+  @override
+  State<VoicesScreen> createState() => _VoicesScreenState();
+}
+
+class _VoicesScreenState extends State<VoicesScreen> {
+  static const _filters = ['All', 'Female', 'Male', 'Neutral'];
+
+  // Labels match the ones used in the Paste Text screen dropdown.
+  static const _voices = [
+    VoiceOption(
+        name: 'Nova',
+        label: 'Nova (Natural, English)',
+        style: 'Natural',
+        gender: 'Female',
+        language: 'English',
+        icon: Icons.record_voice_over_rounded),
+    VoiceOption(
+        name: 'Echo',
+        label: 'Echo (Calm, English)',
+        style: 'Calm',
+        gender: 'Male',
+        language: 'English',
+        icon: Icons.spa_rounded),
+    VoiceOption(
+        name: 'Onyx',
+        label: 'Onyx (Deep, English)',
+        style: 'Deep',
+        gender: 'Male',
+        language: 'English',
+        icon: Icons.graphic_eq_rounded),
+    VoiceOption(
+        name: 'Alloy',
+        label: 'Alloy (Neutral, English)',
+        style: 'Neutral',
+        gender: 'Neutral',
+        language: 'English',
+        icon: Icons.equalizer_rounded),
+  ];
+
+  String _filter = 'All';
+  late String _selected = selectedVoice.value;
+  String? _previewing; // label of the voice currently "previewing"
+  Timer? _previewTimer;
+  double _speed = voiceSpeed.value;
+  double _pitch = voicePitch.value;
+
+  List<VoiceOption> get _visible => _filter == 'All'
+      ? _voices
+      : _voices.where((v) => v.gender == _filter).toList();
+
+  @override
+  void dispose() {
+    _previewTimer?.cancel();
+    super.dispose();
+  }
+
+  void _preview(VoiceOption v) {
+    _previewTimer?.cancel();
+    if (_previewing == v.label) {
+      setState(() => _previewing = null);
+      return;
+    }
+    // Simulated preview. Add your flutter_tts sample here, e.g.
+    // tts.speak('Hello, I am ${v.name}');
+    setState(() => _previewing = v.label);
+    _previewTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _previewing = null);
+    });
+  }
+
+  void _apply() {
+    selectedVoice.value = _selected;
+    voiceSpeed.value = _speed;
+    voicePitch.value = _pitch;
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Voice set to $_selected')));
+    Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final list = _visible;
+    return Scaffold(
+      body: GlassBackground(
+        child: Column(
+          children: [
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+                children: [
+                  // Top bar
+                  SizedBox(
+                    height: 48,
+                    child: Row(
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.arrow_back, color: kInk),
+                          onPressed: () => Navigator.of(context).pop(),
+                        ),
+                        const Expanded(
+                          child: Text('Voices',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w800,
+                                  color: kInk)),
+                        ),
+                        const SizedBox(width: 48),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text('Choose your reading voice',
+                      style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                          color: kIndigo)),
+                  const SizedBox(height: 2),
+                  const Text('Tap play to preview, tap a card to select',
+                      style: TextStyle(fontSize: 12, color: kMuted)),
+                  const SizedBox(height: 18),
+
+                  // Filter chips
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        for (final f in _filters) ...[
+                          _filterChip(f),
+                          const SizedBox(width: 10),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+
+                  // Voice cards
+                  if (list.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 24),
+                      child: Text('No voices found',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 12, color: kMuted)),
+                    ),
+                  for (final v in list) ...[
+                    _voiceCard(v),
+                    const SizedBox(height: 12),
+                  ],
+
+                  const SizedBox(height: 8),
+                  const Text('Voice Settings',
+                      style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: kIndigo)),
+                  const SizedBox(height: 12),
+                  GlassCard(
+                    radius: 16,
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                    child: Column(
+                      children: [
+                        _sliderRow(
+                          icon: Icons.speed_rounded,
+                          label: 'Speed',
+                          value: _speed,
+                          min: 0.5,
+                          max: 2.0,
+                          onChanged: (v) => setState(() => _speed = v),
+                        ),
+                        _sliderRow(
+                          icon: Icons.tune_rounded,
+                          label: 'Pitch',
+                          value: _pitch,
+                          min: 0.5,
+                          max: 2.0,
+                          onChanged: (v) => setState(() => _pitch = v),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+                  Center(
+                    child: GlassButton(
+                        label: 'Apply Voice', onPressed: _apply, filled: true),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _filterChip(String t) {
+    final on = _filter == t;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(20),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+        child: Material(
+          color: on ? alpha(kIndigo, 0.9) : alpha(Colors.white, 0.55),
+          child: InkWell(
+            onTap: () => setState(() => _filter = t),
+            child: Container(
+              height: 34,
+              padding: const EdgeInsets.symmetric(horizontal: 18),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: alpha(Colors.white, 0.8)),
+              ),
+              child: Text(t,
+                  style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: on ? Colors.white : kInk)),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _voiceCard(VoiceOption v) {
+    final isSelected = _selected == v.label;
+    final isPreviewing = _previewing == v.label;
+    return GlassCard(
+      radius: 18,
+      tint: isSelected ? const Color(0xFFE4E5FF) : null,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      onTap: () => setState(() => _selected = v.label),
+      child: Row(
+        children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF4A3FE0), kPurple],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: alpha(const Color(0xFF4A3FE0), 0.3),
+                  blurRadius: 12,
+                  offset: const Offset(0, 5),
+                ),
+              ],
+            ),
+            child: Icon(v.icon, color: Colors.white, size: 22),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(v.name,
+                    style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: kInk)),
+                const SizedBox(height: 3),
+                Text('${v.style}  •  ${v.gender}  •  ${v.language}',
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 10, color: kMuted)),
+                if (isPreviewing) ...[
+                  const SizedBox(height: 4),
+                  const Row(
+                    children: [
+                      Icon(Icons.graphic_eq_rounded,
+                          size: 12, color: Color(0xFF4A3FE0)),
+                      SizedBox(width: 4),
+                      Text('Playing preview...',
+                          style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF4A3FE0))),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+          InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: () => _preview(v),
+            child: Container(
+              padding: const EdgeInsets.all(7),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: alpha(kIndigo, 0.08),
+              ),
+              child: Icon(
+                  isPreviewing
+                      ? Icons.stop_rounded
+                      : Icons.play_arrow_rounded,
+                  size: 22,
+                  color: kInk),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Icon(
+            isSelected
+                ? Icons.check_circle_rounded
+                : Icons.radio_button_unchecked_rounded,
+            color: isSelected ? const Color(0xFF5A4FCF) : kMuted,
+            size: 24,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sliderRow({
+    required IconData icon,
+    required String label,
+    required double value,
+    required double min,
+    required double max,
+    required ValueChanged<double> onChanged,
+  }) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: kInk),
+        const SizedBox(width: 8),
+        SizedBox(
+          width: 44,
+          child: Text(label,
+              style: const TextStyle(fontSize: 12, color: kInk)),
+        ),
+        Expanded(
+          child: SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              trackHeight: 3,
+              activeTrackColor: const Color(0xFF4A3FE0),
+              inactiveTrackColor: alpha(kIndigo, 0.15),
+              thumbColor: const Color(0xFF4A3FE0),
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+            ),
+            child: Slider(
+              value: value,
+              min: min,
+              max: max,
+              divisions: 15,
+              onChanged: onChanged,
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 38,
+          child: Text('${value.toStringAsFixed(1)}x',
+              textAlign: TextAlign.right,
+              style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF4A3FE0))),
+        ),
+      ],
     );
   }
 }
