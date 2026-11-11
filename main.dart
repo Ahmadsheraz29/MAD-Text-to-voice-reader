@@ -1,5 +1,5 @@
 // lib/main.dart
-// Voice Reader App - 7 Screens (Sign Up, Login, Home, Paste Text, Upload Document, Audio Player, Voices)
+// Voice Reader App - 8 Screens (Sign Up, Login, Home, Paste Text, Upload Document, Audio Player, Voices, My Library)
 // Only Flutter SDK is used (plus file_picker for uploads).
 
 import 'dart:async';
@@ -827,6 +827,13 @@ class _HomeScreenState extends State<HomeScreen> {
             if (index == 1) {
               Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const VoicesScreen()),
+              );
+              return;
+            }
+            // Library (index 2) opens SCREEN 8
+            if (index == 2) {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const LibraryScreen()),
               );
               return;
             }
@@ -1934,6 +1941,230 @@ class _VoicesScreenState extends State<VoicesScreen> {
                   color: Color(0xFF4A3FE0))),
         ),
       ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// SCREEN 8: My Library (opened from the "Library" icon in the footer)
+// ---------------------------------------------------------------------------
+class LibraryItem {
+  final String title;
+  final double progress; // 0..1 (used for In Progress tab)
+  const LibraryItem(this.title, [this.progress = 1.0]);
+}
+
+class LibraryScreen extends StatefulWidget {
+  const LibraryScreen({super.key});
+
+  @override
+  State<LibraryScreen> createState() => _LibraryScreenState();
+}
+
+class _LibraryScreenState extends State<LibraryScreen> {
+  // 0 = In Progress, 1 = Completed
+  int _tab = 1;
+
+  static const _inProgress = [
+    LibraryItem('Operating_Systems.PDF', 0.45),
+    LibraryItem('Network_Security.PDF', 0.20),
+    LibraryItem('Algorithms_Notes.PDF', 0.70),
+  ];
+
+  static const _completed = [
+    LibraryItem('History.PDF'),
+    LibraryItem('Lecture_Notes.PDF'),
+    LibraryItem('AI Over Review.Pdf'),
+    LibraryItem('Research_Papers.PDF'),
+    LibraryItem('Design_Brief.PDF'),
+    LibraryItem('Web_Technologies.PDF'),
+    LibraryItem('Assembly_Basics.PDF'),
+    LibraryItem('Computer_Networks.PDF'),
+    LibraryItem('Mobile_App_Dev.PDF'),
+    LibraryItem('Info_Security.PDF'),
+    LibraryItem('Python_Cheatsheet.PDF'),
+    LibraryItem('Project_Report.PDF'),
+  ];
+
+  List<LibraryItem> get _items => _tab == 0 ? _inProgress : _completed;
+
+  void _open(LibraryItem item) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => AudioPlayerScreen(title: item.title)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final items = _items;
+    return Scaffold(
+      body: GlassBackground(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          child: GlassCard(
+            radius: 28,
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Title row
+                Row(
+                  children: [
+                    InkWell(
+                      borderRadius: BorderRadius.circular(20),
+                      onTap: () => Navigator.of(context).pop(),
+                      child: const Padding(
+                        padding: EdgeInsets.all(4),
+                        child: Icon(Icons.arrow_back, size: 20, color: kInk),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Text('My Library',
+                        style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            color: kInk)),
+                  ],
+                ),
+                const SizedBox(height: 22),
+
+                // Tabs
+                Row(
+                  children: [
+                    Expanded(
+                      child: _tabButton(
+                          0, 'In Progress (${_inProgress.length})',
+                          Alignment.centerLeft),
+                    ),
+                    Expanded(
+                      child: _tabButton(
+                          1, 'Completed (${_completed.length})',
+                          Alignment.centerRight),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                // List
+                Expanded(
+                  child: items.isEmpty
+                      ? const Center(
+                      child: Text('Nothing here yet',
+                          style: TextStyle(fontSize: 12, color: kMuted)))
+                      : ListView.separated(
+                    padding: EdgeInsets.zero,
+                    itemCount: items.length,
+                    separatorBuilder: (_, __) =>
+                    const SizedBox(height: 12),
+                    itemBuilder: (_, i) => _libraryCard(items[i]),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _tabButton(int index, String label, Alignment align) {
+    final on = _tab == index;
+    return InkWell(
+      onTap: () => setState(() => _tab = index),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Column(
+          crossAxisAlignment: on
+              ? CrossAxisAlignment.stretch
+              : CrossAxisAlignment.stretch,
+          children: [
+            Align(
+              alignment: align,
+              child: Text(label,
+                  style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: on ? FontWeight.w800 : FontWeight.w600,
+                      color: on ? const Color(0xFF3A4A9F) : kMuted)),
+            ),
+            const SizedBox(height: 4),
+            Container(
+              height: 2,
+              margin: const EdgeInsets.symmetric(horizontal: 2),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(2),
+                color: on ? const Color(0xFF4A3FE0) : Colors.transparent,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _libraryCard(LibraryItem item) {
+    final inProgress = _tab == 0;
+    return GlassCard(
+      radius: 12,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      onTap: () => _open(item),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(5),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              color: alpha(Colors.white, 0.8),
+              border: Border.all(color: alpha(kMuted, 0.35)),
+            ),
+            child: const Icon(Icons.description_outlined,
+                size: 20, color: kInk),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(item.title,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        color: kInk)),
+                if (inProgress) ...[
+                  const SizedBox(height: 6),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: item.progress,
+                      minHeight: 3,
+                      backgroundColor: alpha(kIndigo, 0.12),
+                      valueColor: const AlwaysStoppedAnimation(
+                          Color(0xFF4A3FE0)),
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text('${(item.progress * 100).round()}% completed',
+                      style: const TextStyle(fontSize: 9, color: kMuted)),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: () => _open(item),
+            child: Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: alpha(kIndigo, 0.08),
+              ),
+              child: const Icon(Icons.play_arrow_rounded,
+                  size: 20, color: kInk),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
