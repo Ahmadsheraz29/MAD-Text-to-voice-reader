@@ -1,14 +1,21 @@
 // lib/main.dart
-// Voice Reader App - 8 Screens (Sign Up, Login, Home, Paste Text, Upload Document, Audio Player, Voices, My Library)
-// Only Flutter SDK is used (plus file_picker for uploads).
-
+// Voice Reader App - 8 Screens with REAL Text-to-Speech
+// Packages: flutter_tts, file_picker, syncfusion_flutter_pdf, archive
+import 'dart:io';
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ui';
+import 'package:archive/archive.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:file_picker/file_picker.dart';
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:syncfusion_flutter_pdf/pdf.dart' as sfpdf;
 
-void main() => runApp(const VoiceReaderApp());
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const VoiceReaderApp());
+}
 
 // ---------------------------------------------------------------------------
 // Colors & helpers
@@ -21,11 +28,153 @@ const kMuted = Color(0xFF6B6F8D);
 
 Color alpha(Color c, double o) => c.withAlpha((o * 255).round());
 
-// Shared state: voice selected on the Voices screen is used by Paste Text screen.
+// Shared state
 final ValueNotifier<String> selectedVoice =
 ValueNotifier<String>('Nova (Natural, English)');
 final ValueNotifier<double> voiceSpeed = ValueNotifier<double>(1.0);
 final ValueNotifier<double> voicePitch = ValueNotifier<double>(1.0);
+
+const String kSampleText =
+    'Artificial intelligence is the ability of machines to perform tasks that '
+    'normally require human intelligence. This includes learning from '
+    'experience, understanding language, recognizing images, and making '
+    'decisions. Today, artificial intelligence is used in many areas such as '
+    'healthcare, education, finance, and transportation. As the technology '
+    'grows, it is important to use it responsibly and to understand both its '
+    'benefits and its limits.';
+
+// ---------------------------------------------------------------------------
+// Voice options (shared by Paste Text, Voices, TTS service)
+// ---------------------------------------------------------------------------
+class VoiceOption {
+  final String name;
+  final String label;
+  final String style;
+  final String gender;
+  final String language;
+  final IconData icon;
+  final double pitchShift; // makes each voice sound different
+  const VoiceOption({
+    required this.name,
+    required this.label,
+    required this.style,
+    required this.gender,
+    required this.language,
+    required this.icon,
+    this.pitchShift = 1.0,
+  });
+}
+
+const List<VoiceOption> kVoices = [
+  VoiceOption(
+      name: 'Nova',
+      label: 'Nova (Natural, English)',
+      style: 'Natural',
+      gender: 'Female',
+      language: 'English',
+      icon: Icons.record_voice_over_rounded,
+      pitchShift: 1.15),
+  VoiceOption(
+      name: 'Echo',
+      label: 'Echo (Calm, English)',
+      style: 'Calm',
+      gender: 'Male',
+      language: 'English',
+      icon: Icons.spa_rounded,
+      pitchShift: 0.9),
+  VoiceOption(
+      name: 'Onyx',
+      label: 'Onyx (Deep, English)',
+      style: 'Deep',
+      gender: 'Male',
+      language: 'English',
+      icon: Icons.graphic_eq_rounded,
+      pitchShift: 0.7),
+  VoiceOption(
+      name: 'Alloy',
+      label: 'Alloy (Neutral, English)',
+      style: 'Neutral',
+      gender: 'Neutral',
+      language: 'English',
+      icon: Icons.equalizer_rounded,
+      pitchShift: 1.0),
+];
+
+// ---------------------------------------------------------------------------
+// TTS Service (real speech)
+// ---------------------------------------------------------------------------
+class TtsService {
+  static final FlutterTts engine = FlutterTts();
+  static bool _ready = false;
+  static final List<Map<String, String>> _enVoices = [];
+
+  static Future<void> init() async {
+    if (_ready) return;
+    _ready = true;
+    try {
+      await engine.setLanguage('en-US');
+      await engine.setVolume(1.0);
+      final dynamic v = await engine.getVoices;
+      if (v is List) {
+        for (final e in v) {
+          if (e is Map) {
+            final name = e['name']?.toString();
+            final locale = e['locale']?.toString();
+            if (name == null || locale == null) continue;
+            final l = locale.toLowerCase().replaceAll('_', '-');
+            if (l.startsWith('en')) {
+              _enVoices.add({'name': name, 'locale': locale});
+            }
+          }
+        }
+        _enVoices.sort((a, b) => a['name']!.compareTo(b['name']!));
+      }
+    } catch (_) {}
+  }
+
+  static Future<void> _apply(String label, double speed, double pitch) async {
+    await init();
+    final idx = kVoices.indexWhere((v) => v.label == label);
+    final i = idx < 0 ? 0 : idx;
+    final opt = kVoices[i];
+    if (_enVoices.isNotEmpty) {
+      final pick = _enVoices[i % _enVoices.length];
+      try {
+        await engine.setVoice({'name': pick['name']!, 'locale': pick['locale']!});
+      } catch (_) {}
+    }
+    try {
+      await engine.setSpeechRate((0.5 * speed).clamp(0.1, 1.0).toDouble());
+      await engine.setPitch((pitch * opt.pitchShift).clamp(0.5, 2.0).toDouble());
+    } catch (_) {}
+  }
+
+  static Future<void> speak(
+      String text, {
+        required String voiceLabel,
+        required double speed,
+        required double pitch,
+      }) async {
+    if (text.trim().isEmpty) return;
+    try {
+      await engine.stop();
+      await _apply(voiceLabel, speed, pitch);
+      await engine.speak(text);
+    } catch (_) {}
+  }
+
+  static Future<void> stop() async {
+    try {
+      await engine.stop();
+    } catch (_) {}
+  }
+
+  static void clearHandlers() {
+    engine.setCompletionHandler(() {});
+    engine.setErrorHandler((_) {});
+    engine.setProgressHandler((a, b, c, d) {});
+  }
+}
 
 class VoiceReaderApp extends StatelessWidget {
   const VoiceReaderApp({super.key});
@@ -65,7 +214,10 @@ class GlassBackground extends StatelessWidget {
       child: Stack(
         children: [
           Positioned(top: -70, left: -60, child: _blob(240, kPurple, 0.45)),
-          Positioned(top: 260, right: -90, child: _blob(260, const Color(0xFF6C8CFF), 0.30)),
+          Positioned(
+              top: 260,
+              right: -90,
+              child: _blob(260, const Color(0xFF6C8CFF), 0.30)),
           Positioned(bottom: -80, left: -40, child: _blob(260, kIndigo, 0.25)),
           Positioned.fill(child: SafeArea(child: child)),
         ],
@@ -254,7 +406,8 @@ class _GlassFieldState extends State<GlassField> {
             ),
             focusedErrorBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
-              borderSide: const BorderSide(color: Colors.redAccent, width: 1.4),
+              borderSide:
+              const BorderSide(color: Colors.redAccent, width: 1.4),
             ),
           ),
         ),
@@ -306,7 +459,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
   void _signUp() {
     if (!_formKey.currentState!.validate()) return;
-    // Add your backend / Firebase sign up logic here.
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
         builder: (_) => HomeScreen(userName: _first.text.trim()),
@@ -329,12 +481,15 @@ class _SignUpScreenState extends State<SignUpScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.graphic_eq_rounded, size: 44, color: kIndigo),
+                    const Icon(Icons.graphic_eq_rounded,
+                        size: 44, color: kIndigo),
                     const SizedBox(height: 8),
                     const Text(
                       'Create account',
                       style: TextStyle(
-                          fontSize: 22, fontWeight: FontWeight.w800, color: kIndigo),
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          color: kIndigo),
                     ),
                     const SizedBox(height: 4),
                     const Text(
@@ -371,7 +526,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
                       validator: passwordValidator,
                     ),
                     const SizedBox(height: 24),
-                    GlassButton(label: 'Sign Up', onPressed: _signUp, filled: true),
+                    GlassButton(
+                        label: 'Sign Up', onPressed: _signUp, filled: true),
                     const SizedBox(height: 14),
                     Wrap(
                       alignment: WrapAlignment.center,
@@ -429,7 +585,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
   void _login() {
     if (!_formKey.currentState!.validate()) return;
-    // Add your backend / Firebase login logic here.
     final name = _email.text.trim().split('@').first;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => HomeScreen(userName: name)),
@@ -487,7 +642,8 @@ class _LoginScreenState extends State<LoginScreen> {
                           onPressed: () =>
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
-                                    content: Text('Password reset is coming soon')),
+                                    content:
+                                    Text('Password reset is coming soon')),
                               ),
                           child: const Text('Forget Password?',
                               style: TextStyle(fontSize: 12, color: kMuted)),
@@ -545,6 +701,12 @@ class _HomeScreenState extends State<HomeScreen> {
         Icons.description_outlined),
   ];
 
+  @override
+  void initState() {
+    super.initState();
+    TtsService.init(); // warm up the speech engine
+  }
+
   String get _greeting {
     final h = DateTime.now().hour;
     if (h < 12) return 'Good Morning';
@@ -568,7 +730,6 @@ class _HomeScreenState extends State<HomeScreen> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
                 children: [
-                  // Header
                   Row(
                     children: [
                       Expanded(
@@ -602,8 +763,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                   const SizedBox(height: 20),
-
-                  // Paste Text + Upload File
                   Row(
                     children: [
                       Expanded(
@@ -657,8 +816,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                         color: kInk)),
                                 SizedBox(height: 2),
                                 Text('PDF,DOCx,TXT',
-                                    style:
-                                    TextStyle(fontSize: 10, color: kMuted)),
+                                    style: TextStyle(
+                                        fontSize: 10, color: kMuted)),
                               ],
                             ),
                           ),
@@ -667,7 +826,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                   const SizedBox(height: 24),
-
                   const Text('Recent Readings',
                       style: TextStyle(
                           fontSize: 15,
@@ -823,14 +981,12 @@ class _HomeScreenState extends State<HomeScreen> {
       borderRadius: BorderRadius.circular(12),
       onTap: onTap ??
               () {
-            // Voices (index 1) opens SCREEN 7
             if (index == 1) {
               Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const VoicesScreen()),
               );
               return;
             }
-            // Library (index 2) opens SCREEN 8
             if (index == 2) {
               Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const LibraryScreen()),
@@ -871,7 +1027,6 @@ class WordLimitFormatter extends TextInputFormatter {
       TextEditingValue oldValue, TextEditingValue newValue) {
     final matches = RegExp(r'\S+').allMatches(newValue.text).toList();
     if (matches.length <= maxWords) return newValue;
-    // If more than 500 words are pasted, keep only the first 500 words
     final end = matches[maxWords - 1].end;
     return TextEditingValue(
       text: newValue.text.substring(0, end),
@@ -890,14 +1045,7 @@ class PasteTextScreen extends StatefulWidget {
 class _PasteTextScreenState extends State<PasteTextScreen> {
   static const int maxWords = 500;
   final _controller = TextEditingController();
-  late String _voice = selectedVoice.value; // comes from Voices screen
-
-  static const _voices = [
-    'Nova (Natural, English)',
-    'Echo (Calm, English)',
-    'Onyx (Deep, English)',
-    'Alloy (Neutral, English)',
-  ];
+  late String _voice = selectedVoice.value;
 
   int get _words => RegExp(r'\S+').allMatches(_controller.text).length;
 
@@ -918,17 +1066,18 @@ class _PasteTextScreenState extends State<PasteTextScreen> {
     final text = data?.text ?? '';
     if (text.trim().isEmpty) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Clipboard is empty')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Clipboard is empty')));
       return;
     }
     final formatted = WordLimitFormatter(maxWords).formatEditUpdate(
       TextEditingValue.empty,
       TextEditingValue(text: text),
     );
+    if (!mounted) return;
     setState(() => _controller.value = formatted);
     final total = RegExp(r'\S+').allMatches(text).length;
-    if (total > maxWords && mounted) {
+    if (total > maxWords) {
       ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Only the first $maxWords words were kept')));
     }
@@ -940,23 +1089,24 @@ class _PasteTextScreenState extends State<PasteTextScreen> {
           const SnackBar(content: Text('Please paste or type text first')));
       return;
     }
-    // Add your Text-to-Speech logic (flutter_tts / API) here.
-    ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Reading $_words words in $_voice')));
+    FocusScope.of(context).unfocus();
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) =>
+            AudioPlayerScreen(title: 'Pasted Text', text: _controller.text),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final atLimit = _words >= maxWords;
-    // If the voice chosen on Voices screen isn't in this list, add it.
-    final voiceItems = _voices.contains(_voice) ? _voices : [..._voices, _voice];
     return Scaffold(
       body: GlassBackground(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
           child: Column(
             children: [
-              // Top bar
               SizedBox(
                 height: 48,
                 child: Row(
@@ -995,8 +1145,6 @@ class _PasteTextScreenState extends State<PasteTextScreen> {
                 ],
               ),
               const SizedBox(height: 6),
-
-              // Text area
               Expanded(
                 child: GlassCard(
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
@@ -1014,8 +1162,7 @@ class _PasteTextScreenState extends State<PasteTextScreen> {
                           decoration: const InputDecoration(
                             hintText:
                             'Paste or type your text here to convert into natural speech...',
-                            hintStyle:
-                            TextStyle(fontSize: 12, color: kMuted),
+                            hintStyle: TextStyle(fontSize: 12, color: kMuted),
                             border: InputBorder.none,
                           ),
                         ),
@@ -1030,9 +1177,8 @@ class _PasteTextScreenState extends State<PasteTextScreen> {
                               style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.w700,
-                                  color: atLimit
-                                      ? Colors.redAccent
-                                      : kMuted)),
+                                  color:
+                                  atLimit ? Colors.redAccent : kMuted)),
                         ],
                       ),
                     ],
@@ -1040,8 +1186,6 @@ class _PasteTextScreenState extends State<PasteTextScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-
-              // Voice selector
               GlassCard(
                 padding:
                 const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
@@ -1062,12 +1206,14 @@ class _PasteTextScreenState extends State<PasteTextScreen> {
                           style: const TextStyle(fontSize: 12, color: kInk),
                           dropdownColor: const Color(0xFFF1F2FD),
                           items: [
-                            for (final v in voiceItems)
-                              DropdownMenuItem(value: v, child: Text(v)),
+                            for (final v in kVoices)
+                              DropdownMenuItem(
+                                  value: v.label, child: Text(v.label)),
                           ],
                           onChanged: (v) {
-                            setState(() => _voice = v!);
-                            selectedVoice.value = v!;
+                            if (v == null) return;
+                            setState(() => _voice = v);
+                            selectedVoice.value = v;
                           },
                         ),
                       ),
@@ -1091,10 +1237,12 @@ class _PasteTextScreenState extends State<PasteTextScreen> {
 class UploadedFile {
   final String name;
   final int bytes;
+  final Uint8List? data;
   bool selected;
-  UploadedFile(this.name, this.bytes, {this.selected = false});
+  UploadedFile(this.name, this.bytes, {this.data, this.selected = false});
 
-  String get ext => name.contains('.') ? name.split('.').last.toLowerCase() : '';
+  String get ext =>
+      name.contains('.') ? name.split('.').last.toLowerCase() : '';
 }
 
 class UploadDocumentScreen extends StatefulWidget {
@@ -1105,44 +1253,62 @@ class UploadDocumentScreen extends StatefulWidget {
 }
 
 class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
-  static const int maxBytes = 25 * 1024 * 1024; // 25MB
+  static const int maxBytes = 25 * 1024 * 1024;
+  static const int maxChars = 3900; // Android TTS limit is ~4000 chars
   static const _types = ['PDF', 'DOCX', 'TXT'];
 
-  // Empty set means: all three types are allowed
   final Set<String> _filter = {};
+  bool _busy = false;
 
   final List<UploadedFile> _recent = [
     UploadedFile('Document_01.pdf', 1200000, selected: true),
   ];
+
+  void _snack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
 
   Future<void> _browse() async {
     final allowed = (_filter.isEmpty ? _types : _filter.toList())
         .map((e) => e.toLowerCase())
         .toList();
     try {
-      final files = await FilePicker.pickFiles(
+      // dynamic is liye ke file_picker ke alag versions mein return type alag hai
+      final dynamic res = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: allowed,
       );
-      if (files.isEmpty) return;
-      final f = files.first;
-      final fileSize = f.lengthSync() ?? 0;
-      if (fileSize > maxBytes) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('File is larger than 25MB')));
+      if (res == null) return;
+
+      final List<dynamic> list = (res is List) ? res : (res.files as List);
+      if (list.isEmpty) return;
+      final dynamic f = list.first;
+
+      final String? path = f.path as String?;
+      if (path == null) {
+
+        _snack('Could not read file');
         return;
       }
+      final file = File(path);
+      final bytes = await file.readAsBytes();
+      if (bytes.length > maxBytes) {
+        _snack('File is larger than 25MB');
+        return;
+      }
+      final name = path.split(RegExp(r'[\\/]')).last;
+
+      if (!mounted) return;
       setState(() {
         for (final r in _recent) {
           r.selected = false;
         }
-        _recent.insert(0, UploadedFile(f.name, fileSize, selected: true));
+        _recent.insert(
+            0, UploadedFile(name, bytes.length, data: bytes, selected: true));
       });
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not select file')));
+      _snack('Could not select file');
     }
   }
 
@@ -1161,17 +1327,67 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
       ? '${(b / (1024 * 1024)).toStringAsFixed(1)} MB'
       : '${(b / 1024).toStringAsFixed(0)} KB';
 
-  void _continue() {
+  // Extract readable text from the file.
+  String _extract(UploadedFile f) {
+    final data = f.data;
+    if (data == null) return kSampleText; // demo file without real data
+    try {
+      switch (f.ext) {
+        case 'txt':
+          return utf8.decode(data, allowMalformed: true);
+        case 'pdf':
+          final doc = sfpdf.PdfDocument(inputBytes: data);
+          final text = sfpdf.PdfTextExtractor(doc).extractText();
+          doc.dispose();
+          return text;
+        case 'docx':
+          final archive = ZipDecoder().decodeBytes(data);
+          for (final file in archive) {
+            if (file.name == 'word/document.xml') {
+              final xml = utf8.decode(file.content as List<int>,
+                  allowMalformed: true);
+              return xml
+                  .replaceAll('</w:p>', '\n')
+                  .replaceAll(RegExp(r'<[^>]+>'), '')
+                  .replaceAll('&amp;', '&')
+                  .replaceAll('&lt;', '<')
+                  .replaceAll('&gt;', '>')
+                  .replaceAll('&quot;', '"')
+                  .replaceAll('&apos;', "'");
+            }
+          }
+          return '';
+        default:
+          return '';
+      }
+    } catch (_) {
+      return '';
+    }
+  }
+
+  Future<void> _continue() async {
     final sel = _recent.where((e) => e.selected).toList();
     if (sel.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please select a file first')));
+      _snack('Please select a file first');
       return;
     }
-    // Extract file text here and send it to Text-to-Speech.
+    setState(() => _busy = true);
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    String text = _extract(sel.first).replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (!mounted) return;
+    setState(() => _busy = false);
+
+    if (text.isEmpty) {
+      _snack('Is file mein se text nahi mila');
+      return;
+    }
+    if (text.length > maxChars) {
+      text = text.substring(0, maxChars);
+      _snack('Pehle $maxChars characters parhe jayenge');
+    }
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => AudioPlayerScreen(title: sel.first.name),
+        builder: (_) => AudioPlayerScreen(title: sel.first.name, text: text),
       ),
     );
   }
@@ -1183,7 +1399,6 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
           children: [
-            // Top bar
             SizedBox(
               height: 48,
               child: Row(
@@ -1205,8 +1420,6 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
               ),
             ),
             const SizedBox(height: 24),
-
-            // Browse box
             GlassCard(
               radius: 20,
               tint: const Color(0xFFE4E5FF),
@@ -1217,7 +1430,8 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0xFF6C6CF0), width: 1.4),
+                  border:
+                  Border.all(color: const Color(0xFF6C6CF0), width: 1.4),
                 ),
                 child: const Column(
                   mainAxisSize: MainAxisSize.min,
@@ -1238,8 +1452,6 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
               ),
             ),
             const SizedBox(height: 28),
-
-            // Type chips
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -1253,12 +1465,10 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
               ],
             ),
             const SizedBox(height: 28),
-
             const Text('Recent Uploads',
                 style: TextStyle(
                     fontSize: 13, fontWeight: FontWeight.w800, color: kInk)),
             const SizedBox(height: 14),
-
             if (_recent.isEmpty)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 20),
@@ -1311,7 +1521,11 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
             ],
             const SizedBox(height: 20),
             Center(
-              child: GlassButton(
+              child: _busy
+                  ? const SizedBox(
+                  height: 50,
+                  child: Center(child: CircularProgressIndicator()))
+                  : GlassButton(
                   label: 'Continue', onPressed: _continue, filled: true),
             ),
           ],
@@ -1353,46 +1567,110 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// SCREEN 6: Full Audio Player
+// SCREEN 6: Full Audio Player (REAL speech)
 // ---------------------------------------------------------------------------
 class AudioPlayerScreen extends StatefulWidget {
   final String title;
-  const AudioPlayerScreen({super.key, this.title = 'Chapter 1: The Beginning'});
+  final String? text;
+  const AudioPlayerScreen(
+      {super.key, this.title = 'Chapter 1: The Beginning', this.text});
 
   @override
   State<AudioPlayerScreen> createState() => _AudioPlayerScreenState();
 }
 
 class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
-  // Progress is currently simulated. For real audio, connect position
-  // and duration from flutter_tts / just_audio here.
-  static const int totalSeconds = 418; // 06:58
-  int _position = 253; // 04:13
-  bool _playing = true;
+  late final String _text;
+  late final int _total; // estimated duration in seconds
+  int _position = 0;
+  bool _playing = false;
   bool _bookmarked = false;
+  bool _hasProgress = false;
+  int _baseOffset = 0;
   Timer? _timer;
 
   @override
   void initState() {
     super.initState();
-    _startTimer();
+    var t = (widget.text ?? '').trim();
+    if (t.isEmpty) t = kSampleText;
+    if (t.length > 3900) t = t.substring(0, 3900);
+    _text = t;
+
+    final words = RegExp(r'\S+').allMatches(_text).length;
+    final wpm = 150 * voiceSpeed.value;
+    _total = ((words / wpm) * 60).ceil().clamp(3, 100000).toInt();
+
+    final engine = TtsService.engine;
+    engine.setCompletionHandler(() {
+      _timer?.cancel();
+      if (!mounted) return;
+      setState(() {
+        _playing = false;
+        _position = _total;
+      });
+    });
+    engine.setErrorHandler((msg) {
+      _timer?.cancel();
+      if (!mounted) return;
+      setState(() => _playing = false);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Speech error: $msg')));
+    });
+    engine.setProgressHandler((String t, int start, int end, String word) {
+      if (!mounted || !_playing) return;
+      _hasProgress = true;
+      final abs = _baseOffset + start;
+      final pos = ((abs / _text.length) * _total).round().clamp(0, _total);
+      setState(() => _position = pos);
+    });
+
+    _play();
   }
 
-  void _startTimer() {
+  int _snapToWord(int o) {
+    if (o <= 0) return 0;
+    if (o >= _text.length) return _text.length - 1;
+    while (o > 0 && _text[o - 1].trim().isNotEmpty) {
+      o--;
+    }
+    return o;
+  }
+
+  Future<void> _play() async {
+    if (_position >= _total) _position = 0;
+    final raw = ((_text.length * _position) / _total).floor();
+    _baseOffset = _snapToWord(raw);
+    _hasProgress = false;
+    if (mounted) setState(() => _playing = true);
+
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!_playing) return;
-      if (_position >= totalSeconds) {
-        setState(() => _playing = false);
-        return;
+      if (!mounted || !_playing || _hasProgress) return;
+      if (_position < _total - 1) {
+        setState(() => _position++);
       }
-      setState(() => _position++);
     });
+
+    await TtsService.speak(
+      _text.substring(_baseOffset),
+      voiceLabel: selectedVoice.value,
+      speed: voiceSpeed.value,
+      pitch: voicePitch.value,
+    );
+  }
+
+  Future<void> _pause() async {
+    _timer?.cancel();
+    await TtsService.stop();
+    if (mounted) setState(() => _playing = false);
   }
 
   @override
   void dispose() {
     _timer?.cancel();
+    TtsService.stop();
+    TtsService.clearHandlers();
     super.dispose();
   }
 
@@ -1403,22 +1681,22 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
   }
 
   void _togglePlay() {
-    setState(() {
-      if (_position >= totalSeconds) _position = 0;
-      _playing = !_playing;
-    });
+    if (_playing) {
+      _pause();
+    } else {
+      _play();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final remaining = totalSeconds - _position;
+    final remaining = _total - _position;
     return Scaffold(
       body: GlassBackground(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(22, 8, 22, 28),
           child: Column(
             children: [
-              // Top bar
               SizedBox(
                 height: 48,
                 child: Row(
@@ -1447,8 +1725,6 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
                 ),
               ),
               const Spacer(),
-
-              // Cover art
               AspectRatio(
                 aspectRatio: 1,
                 child: Container(
@@ -1468,15 +1744,17 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
                       ),
                     ],
                   ),
-                  child: const Center(
-                    child: Icon(Icons.music_note_rounded,
-                        size: 54, color: Colors.white),
+                  child: Center(
+                    child: Icon(
+                        _playing
+                            ? Icons.graphic_eq_rounded
+                            : Icons.music_note_rounded,
+                        size: 54,
+                        color: Colors.white),
                   ),
                 ),
               ),
               const SizedBox(height: 26),
-
-              // Titles
               Text(widget.title,
                   textAlign: TextAlign.center,
                   maxLines: 2,
@@ -1484,11 +1762,10 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
                   style: const TextStyle(
                       fontSize: 18, fontWeight: FontWeight.w800, color: kInk)),
               const SizedBox(height: 4),
-              const Text('Artificial Intelligence Overview',
-                  style: TextStyle(fontSize: 12, color: kIndigo)),
+              Text('Voice: ${selectedVoice.value}',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 12, color: kIndigo)),
               const SizedBox(height: 22),
-
-              // Seek bar
               SliderTheme(
                 data: SliderTheme.of(context).copyWith(
                   trackHeight: 3,
@@ -1501,10 +1778,13 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
                   const RoundSliderOverlayShape(overlayRadius: 14),
                 ),
                 child: Slider(
-                  value: _position.toDouble(),
+                  value: _position.toDouble().clamp(0, _total.toDouble()),
                   min: 0,
-                  max: totalSeconds.toDouble(),
+                  max: _total.toDouble(),
                   onChanged: (v) => setState(() => _position = v.round()),
+                  onChangeEnd: (_) {
+                    if (_playing) _play();
+                  },
                 ),
               ),
               Padding(
@@ -1515,15 +1795,12 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
                     Text(_fmt(_position),
                         style: const TextStyle(
                             fontSize: 10, color: Color(0xFF4A3FE0))),
-                    Text(_fmt(remaining),
-                        style:
-                        const TextStyle(fontSize: 10, color: kMuted)),
+                    Text(_fmt(remaining < 0 ? 0 : remaining),
+                        style: const TextStyle(fontSize: 10, color: kMuted)),
                   ],
                 ),
               ),
               const SizedBox(height: 18),
-
-              // Play / Pause
               GestureDetector(
                 onTap: _togglePlay,
                 child: Container(
@@ -1557,25 +1834,8 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// SCREEN 7: Voices (opened from the "Voices" icon in the footer)
+// SCREEN 7: Voices (real preview)
 // ---------------------------------------------------------------------------
-class VoiceOption {
-  final String name; // short name, e.g. Nova
-  final String label; // full label used across the app
-  final String style; // Natural / Calm / Deep ...
-  final String gender; // Female / Male / Neutral
-  final String language;
-  final IconData icon;
-  const VoiceOption({
-    required this.name,
-    required this.label,
-    required this.style,
-    required this.gender,
-    required this.language,
-    required this.icon,
-  });
-}
-
 class VoicesScreen extends StatefulWidget {
   const VoicesScreen({super.key});
 
@@ -1586,75 +1846,64 @@ class VoicesScreen extends StatefulWidget {
 class _VoicesScreenState extends State<VoicesScreen> {
   static const _filters = ['All', 'Female', 'Male', 'Neutral'];
 
-  // Labels match the ones used in the Paste Text screen dropdown.
-  static const _voices = [
-    VoiceOption(
-        name: 'Nova',
-        label: 'Nova (Natural, English)',
-        style: 'Natural',
-        gender: 'Female',
-        language: 'English',
-        icon: Icons.record_voice_over_rounded),
-    VoiceOption(
-        name: 'Echo',
-        label: 'Echo (Calm, English)',
-        style: 'Calm',
-        gender: 'Male',
-        language: 'English',
-        icon: Icons.spa_rounded),
-    VoiceOption(
-        name: 'Onyx',
-        label: 'Onyx (Deep, English)',
-        style: 'Deep',
-        gender: 'Male',
-        language: 'English',
-        icon: Icons.graphic_eq_rounded),
-    VoiceOption(
-        name: 'Alloy',
-        label: 'Alloy (Neutral, English)',
-        style: 'Neutral',
-        gender: 'Neutral',
-        language: 'English',
-        icon: Icons.equalizer_rounded),
-  ];
-
   String _filter = 'All';
   late String _selected = selectedVoice.value;
-  String? _previewing; // label of the voice currently "previewing"
+  String? _previewing;
   Timer? _previewTimer;
   double _speed = voiceSpeed.value;
   double _pitch = voicePitch.value;
 
   List<VoiceOption> get _visible => _filter == 'All'
-      ? _voices
-      : _voices.where((v) => v.gender == _filter).toList();
+      ? kVoices
+      : kVoices.where((v) => v.gender == _filter).toList();
+
+  @override
+  void initState() {
+    super.initState();
+    TtsService.init();
+    TtsService.engine.setCompletionHandler(() {
+      _previewTimer?.cancel();
+      if (mounted) setState(() => _previewing = null);
+    });
+    TtsService.engine.setErrorHandler((_) {
+      if (mounted) setState(() => _previewing = null);
+    });
+  }
 
   @override
   void dispose() {
     _previewTimer?.cancel();
+    TtsService.stop();
+    TtsService.clearHandlers();
     super.dispose();
   }
 
-  void _preview(VoiceOption v) {
+  Future<void> _preview(VoiceOption v) async {
     _previewTimer?.cancel();
     if (_previewing == v.label) {
-      setState(() => _previewing = null);
+      await TtsService.stop();
+      if (mounted) setState(() => _previewing = null);
       return;
     }
-    // Simulated preview. Add your flutter_tts sample here, e.g.
-    // tts.speak('Hello, I am ${v.name}');
     setState(() => _previewing = v.label);
-    _previewTimer = Timer(const Duration(seconds: 3), () {
+    // safety timeout in case a platform doesn't send a completion event
+    _previewTimer = Timer(const Duration(seconds: 10), () {
       if (mounted) setState(() => _previewing = null);
     });
+    await TtsService.speak(
+      'Hello, I am ${v.name}. This is how I sound when I read your text.',
+      voiceLabel: v.label,
+      speed: _speed,
+      pitch: _pitch,
+    );
   }
 
   void _apply() {
     selectedVoice.value = _selected;
     voiceSpeed.value = _speed;
     voicePitch.value = _pitch;
-    ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Voice set to $_selected')));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('Voice set to $_selected')));
     Navigator.of(context).pop();
   }
 
@@ -1669,7 +1918,6 @@ class _VoicesScreenState extends State<VoicesScreen> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
                 children: [
-                  // Top bar
                   SizedBox(
                     height: 48,
                     child: Row(
@@ -1700,8 +1948,6 @@ class _VoicesScreenState extends State<VoicesScreen> {
                   const Text('Tap play to preview, tap a card to select',
                       style: TextStyle(fontSize: 12, color: kMuted)),
                   const SizedBox(height: 18),
-
-                  // Filter chips
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
@@ -1714,8 +1960,6 @@ class _VoicesScreenState extends State<VoicesScreen> {
                     ),
                   ),
                   const SizedBox(height: 18),
-
-                  // Voice cards
                   if (list.isEmpty)
                     const Padding(
                       padding: EdgeInsets.symmetric(vertical: 24),
@@ -1727,7 +1971,6 @@ class _VoicesScreenState extends State<VoicesScreen> {
                     _voiceCard(v),
                     const SizedBox(height: 12),
                   ],
-
                   const SizedBox(height: 8),
                   const Text('Voice Settings',
                       style: TextStyle(
@@ -1909,8 +2152,8 @@ class _VoicesScreenState extends State<VoicesScreen> {
         const SizedBox(width: 8),
         SizedBox(
           width: 44,
-          child: Text(label,
-              style: const TextStyle(fontSize: 12, color: kInk)),
+          child:
+          Text(label, style: const TextStyle(fontSize: 12, color: kInk)),
         ),
         Expanded(
           child: SliderTheme(
@@ -1946,11 +2189,11 @@ class _VoicesScreenState extends State<VoicesScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// SCREEN 8: My Library (opened from the "Library" icon in the footer)
+// SCREEN 8: My Library
 // ---------------------------------------------------------------------------
 class LibraryItem {
   final String title;
-  final double progress; // 0..1 (used for In Progress tab)
+  final double progress;
   const LibraryItem(this.title, [this.progress = 1.0]);
 }
 
@@ -1962,7 +2205,6 @@ class LibraryScreen extends StatefulWidget {
 }
 
 class _LibraryScreenState extends State<LibraryScreen> {
-  // 0 = In Progress, 1 = Completed
   int _tab = 1;
 
   static const _inProgress = [
@@ -2007,7 +2249,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Title row
                 Row(
                   children: [
                     InkWell(
@@ -2027,25 +2268,21 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   ],
                 ),
                 const SizedBox(height: 22),
-
-                // Tabs
                 Row(
                   children: [
                     Expanded(
                       child: _tabButton(
-                          0, 'In Progress (${_inProgress.length})',
+                          0,
+                          'In Progress (${_inProgress.length})',
                           Alignment.centerLeft),
                     ),
                     Expanded(
-                      child: _tabButton(
-                          1, 'Completed (${_completed.length})',
+                      child: _tabButton(1, 'Completed (${_completed.length})',
                           Alignment.centerRight),
                     ),
                   ],
                 ),
                 const SizedBox(height: 16),
-
-                // List
                 Expanded(
                   child: items.isEmpty
                       ? const Center(
@@ -2074,9 +2311,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 6),
         child: Column(
-          crossAxisAlignment: on
-              ? CrossAxisAlignment.stretch
-              : CrossAxisAlignment.stretch,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Align(
               alignment: align,
@@ -2116,8 +2351,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
               color: alpha(Colors.white, 0.8),
               border: Border.all(color: alpha(kMuted, 0.35)),
             ),
-            child: const Icon(Icons.description_outlined,
-                size: 20, color: kInk),
+            child:
+            const Icon(Icons.description_outlined, size: 20, color: kInk),
           ),
           const SizedBox(width: 12),
           Expanded(
