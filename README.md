@@ -150,7 +150,7 @@ Main building blocks inside `main.dart`:
 
 ## Author
 
-Developed by **Saad** as a Mobile Application Development (MAD) course project.
+Developed by **Ahmad Sheraz and Abdul Wahab** as a Mobile Application Development (MAD) course project.
 
 ---
 
